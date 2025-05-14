@@ -83,7 +83,7 @@ services:
       - type: bind
         source: /dev/disk
         target: /dev/disk
-        read_only: true                        
+        read_only: true
     networks:
       - proxy
 
