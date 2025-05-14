@@ -44,6 +44,9 @@ docker-mailserver is pretty much a command line mail server. I'm considering usi
 
 MicroCeph is a lightweight Ceph implementation. I think it was easier to setup than Ceph itself. It is configured similarly to docker swarm, which I thought was a nice touch.
 
+<details>
+<summary>MicroCeph Setup</summary>
+
 #### Prerequisites
 - 3 Ubuntu hosts (node-1, node-2, node-3)
 - Private network for the cluster (10.0.0.0/16)
@@ -207,7 +210,7 @@ Restart=on-failure
 WantedBy=multi-user.target
 ```
 
-
+</details>
 
 
 ### [minio](https://min.io/)
