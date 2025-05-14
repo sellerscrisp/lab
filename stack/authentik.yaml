@@ -1,0 +1,290 @@
+# old
+version: '3.8'
+
+networks:
+  proxy: # Your existing external Traefik network
+    external: true
+  authentik-backend: # Internal network for Authentik components
+    driver: overlay
+    attachable: true
+  # socket_proxy: # You mentioned removing this from server, worker might still use it or direct docker.sock
+  #   driver: overlay
+  #   attachable: true
+
+volumes:
+  authentik_db_data:
+    driver: local
+  authentik_redis_data:
+    driver: local
+  authentik_media_data:
+    driver: local
+  authentik_custom_templates_data:
+    driver: local
+  authentik_certs_data:
+    driver: local
+  authentik_geoip_data:
+    driver: local
+
+secrets:
+  # These secrets must be created in Docker Swarm BEFORE deploying this stack
+  authentik_pg_pass:
+    external: true
+  authentik_pg_user:
+    external: true
+  authentik_pg_db:
+    external: true
+  authentik_secret_key:
+    external: true
+  # # Optional email secrets
+  # gmail_smtp_username:
+  #   external: true
+  # gmail_smtp_password:
+  #   external: true
+  # # Optional geoip secrets
+  # geoip_account_id:
+  #   external: true
+  # geoip_license_key:
+  #   external: true
+configs:
+  init-auth.sql:
+    file: ./init-auth.sql
+    external: true
+
+services:
+  postgresql:
+    image: docker.io/library/postgres:16-alpine
+    restart: unless-stopped
+    shm_size: 128mb
+    user: root:root # Run as root for permissions
+    configs:
+      - source: init-auth.sql
+        target: /docker-entrypoint-initdb.d/01-init-auth.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -d $$(cat /run/secrets/POSTGRES_DB || echo authentik) -U $$(cat /run/secrets/POSTGRES_USER || echo authentik)"]
+      start_period: 20s
+      interval: 30s
+      retries: 5
+      timeout: 5s
+    networks:
+      - authentik-backend
+    volumes:
+      - authentik_db_data:/var/lib/postgresql/data
+    secrets:
+      - source: authentik_pg_pass
+        target: POSTGRES_PASSWORD
+      - source: authentik_pg_user
+        target: POSTGRES_USER
+      - source: authentik_pg_db
+        target: POSTGRES_DB
+    environment:
+      # POSTGRES_PASSWORD_FILE: /run/secrets/POSTGRES_PASSWORD
+      # POSTGRES_USER_FILE: /run/secrets/POSTGRES_USER
+      # POSTGRES_DB_FILE: /run/secrets/POSTGRES_DB
+      POSTGRES_PASSWORD: ${AUTHENTIK_POSTGRES_PASSWORD}
+      POSTGRES_USER: ${AUTHENTIK_POSTGRES_USER}
+      POSTGRES_DB: ${AUTHENTIK_POSTGRES_DB}
+    deploy:
+      placement:
+        constraints:
+          - node.hostname == ash-2
+
+  redis:
+    image: docker.io/library/redis:alpine
+    command: --save 60 1 --loglevel warning
+    restart: unless-stopped
+    entrypoint:
+      - sh
+      - -c
+      - |
+        chown -R ${PUID:-1000}:${PGID:-1000} /data
+        exec redis-server --save 60 1 --loglevel warning
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep PONG"]
+      start_period: 20s
+      interval: 30s
+      retries: 5
+      timeout: 3s
+    networks:
+      - authentik-backend
+    volumes:
+      - authentik_redis_data:/data
+    deploy:
+      placement:
+        constraints:
+          - node.hostname == ash-2
+
+  server:
+    image: ${AUTHENTIK_IMAGE:-ghcr.io/goauthentik/server}:${AUTHENTIK_TAG:-2025.4.0}
+    restart: unless-stopped
+    command: server
+    user: "${PUID:-1000}:${PGID:-1000}"
+    depends_on:
+      - postgresql
+      - redis
+    networks:
+      - proxy
+      - authentik-backend
+    secrets:
+      - source: authentik_pg_pass
+        target: AUTHENTIK_POSTGRESQL__PASSWORD
+      - source: authentik_pg_user
+        target: AUTHENTIK_POSTGRESQL__USER
+      - source: authentik_pg_db
+        target: AUTHENTIK_POSTGRESQL__NAME
+      - source: authentik_secret_key
+        target: AUTHENTIK_SECRET_KEY
+    environment:
+      AUTHENTIK_REDIS__HOST: redis
+      AUTHENTIK_POSTGRESQL__HOST: postgresql
+      AUTHENTIK_POSTGRESQL__USER: file:///run/secrets/AUTHENTIK_POSTGRESQL__USER
+      AUTHENTIK_POSTGRESQL__NAME: file:///run/secrets/AUTHENTIK_POSTGRESQL__NAME
+      AUTHENTIK_POSTGRESQL__PASSWORD: file:///run/secrets/AUTHENTIK_POSTGRESQL__PASSWORD
+      AUTHENTIK_SECRET_KEY: file:///run/secrets/AUTHENTIK_SECRET_KEY
+      AUTHENTIK_DISABLE_STARTUP_ANALYTICS: "${AUTHENTIK_DISABLE_STARTUP_ANALYTICS:-true}"
+      AUTHENTIK_DISABLE_UPDATE_CHECK: "${AUTHENTIK_DISABLE_UPDATE_CHECK:-true}"
+      AUTHENTIK_ERROR_REPORTING__ENABLED: "${AUTHENTIK_ERROR_REPORTING__ENABLED:-false}"
+      AUTHENTIK_LOG_LEVEL: "${AUTHENTIK_LOG_LEVEL:-info}"
+      AUTHENTIK_COOKIE_DOMAIN: "${DOMAINNAME}"
+      AUTHENTIK_HOST_BROWSER: "https://auth.${DOMAINNAME}"
+      AUTHENTIK_HOST: "https://auth.${DOMAINNAME}"
+      # AUTHENTIK_LISTEN__TRUSTED_PROXY_CIDRS: "${AUTHENTIK_LISTEN__TRUSTED_PROXY_CIDRS}" # Optional
+    volumes:
+      - authentik_media_data:/media
+      - authentik_custom_templates_data:/templates
+      - authentik_geoip_data:/geoip
+      - /mnt/shared/branding/logos:/web/dist/assets/images:ro
+      - /mnt/shared/branding/fonts:/web/dist/assets/fonts:ro
+    deploy:
+      placement:
+        constraints:
+          - node.hostname == ash-2
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.authentik-ui.rule=Host(`auth.${DOMAINNAME}`)"
+        - "traefik.http.routers.authentik-ui.entrypoints=websecure"
+        - "traefik.http.routers.authentik-ui.tls.certresolver=cloudflare"
+        - "traefik.http.routers.authentik-ui.service=authentik-svc"
+        - "traefik.http.routers.authentik-outpost.rule=Host(`auth.${DOMAINNAME}`) && PathPrefix(`/outpost.goauthentik.io/`)"
+        - "traefik.http.routers.authentik-outpost.priority=100"
+        - "traefik.http.routers.authentik-outpost.entrypoints=websecure"
+        - "traefik.http.routers.authentik-outpost.tls.certresolver=cloudflare"
+        - "traefik.http.routers.authentik-outpost.service=authentik-svc"
+        - "traefik.http.services.authentik-svc.loadbalancer.server.port=9000"
+
+  worker:
+    image: ${AUTHENTIK_IMAGE:-ghcr.io/goauthentik/server}:${AUTHENTIK_TAG:-2025.4.0}
+    restart: unless-stopped
+    user: root #! bad
+    command: worker
+    depends_on:
+      - postgresql
+      - redis
+    networks:
+      - authentik-backend
+    secrets:
+      - source: authentik_pg_pass
+        target: AUTHENTIK_POSTGRESQL__PASSWORD
+      - source: authentik_pg_user
+        target: AUTHENTIK_POSTGRESQL__USER
+      - source: authentik_pg_db
+        target: AUTHENTIK_POSTGRESQL__NAME
+      - source: authentik_secret_key
+        target: AUTHENTIK_SECRET_KEY
+      # - source: gmail_smtp_username # Optional
+      #   target: AUTHENTIK_EMAIL__USERNAME
+      # - source: gmail_smtp_password # Optional
+      #   target: AUTHENTIK_EMAIL__PASSWORD
+    environment:
+      DOCKER_HOST: "${DOCKER_HOST:-unix:///var/run/docker.sock}"
+      AUTHENTIK_REDIS__HOST: redis
+      AUTHENTIK_POSTGRESQL__HOST: postgresql
+      AUTHENTIK_POSTGRESQL__USER: file:///run/secrets/AUTHENTIK_POSTGRESQL__USER
+      AUTHENTIK_POSTGRESQL__NAME: file:///run/secrets/AUTHENTIK_POSTGRESQL__NAME
+      AUTHENTIK_POSTGRESQL__PASSWORD: file:///run/secrets/AUTHENTIK_POSTGRESQL__PASSWORD
+      AUTHENTIK_SECRET_KEY: file:///run/secrets/AUTHENTIK_SECRET_KEY
+      AUTHENTIK_DISABLE_STARTUP_ANALYTICS: "${AUTHENTIK_DISABLE_STARTUP_ANALYTICS:-true}"
+      AUTHENTIK_DISABLE_UPDATE_CHECK: "${AUTHENTIK_DISABLE_UPDATE_CHECK:-true}"
+      AUTHENTIK_ERROR_REPORTING__ENABLED: "${AUTHENTIK_ERROR_REPORTING__ENABLED:-false}"
+      AUTHENTIK_COOKIE_DOMAIN: "${DOMAINNAME}"
+      AUTHENTIK_LOG_LEVEL: "${AUTHENTIK_LOG_LEVEL:-info}"
+      AUTHENTIK_EMAIL__HOST: "${AUTHENTIK_EMAIL__HOST}"
+      AUTHENTIK_EMAIL__PORT: "${AUTHENTIK_EMAIL__PORT:-587}"
+      AUTHENTIK_EMAIL__USERNAME: file:///run/secrets/AUTHENTIK_EMAIL__USERNAME
+      AUTHENTIK_EMAIL__PASSWORD: file:///run/secrets/AUTHENTIK_EMAIL__PASSWORD
+      AUTHENTIK_EMAIL__USE_TLS: "${AUTHENTIK_EMAIL__USE_TLS:-true}"
+      AUTHENTIK_EMAIL__USE_SSL: "${AUTHENTIK_EMAIL__USE_SSL:-false}"
+      AUTHENTIK_EMAIL__TIMEOUT: "${AUTHENTIK_EMAIL__TIMEOUT:-10}"
+      AUTHENTIK_EMAIL__FROM: "${AUTHENTIK_EMAIL__FROM:-authentik@${DOMAINNAME}}"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - authentik_media_data:/media
+      - authentik_custom_templates_data:/templates
+      - authentik_certs_data:/certs
+      - authentik_geoip_data:/geoip
+    deploy:
+      placement:
+        constraints:
+          - node.hostname == ash-2
+
+  geoipupdate:
+    image: ghcr.io/maxmind/geoipupdate:latest
+    restart: unless-stopped
+    user: "${PUID:-1000}:${PGID:-1000}"
+    volumes:
+      - authentik_geoip_data:/usr/share/GeoIP
+    networks:
+      - authentik-backend
+    # secrets:
+    #   - source: geoip_account_id # Optional
+    #     target: GEOIPUPDATE_ACCOUNT_ID
+    #   - source: geoip_license_key # Optional
+    #     target: GEOIPUPDATE_LICENSE_KEY
+    environment:
+      GEOIPUPDATE_EDITION_IDS: "${GEOIPUPDATE_EDITION_IDS:-GeoLite2-ASN GeoLite2-City GeoLite2-Country}"
+      GEOIPUPDATE_FREQUENCY: "${GEOIPUPDATE_FREQUENCY:-24}"
+      GEOIPUPDATE_ACCOUNT_ID: file:///run/secrets/GEOIPUPDATE_ACCOUNT_ID
+      GEOIPUPDATE_LICENSE_KEY: file:///run/secrets/GEOIPUPDATE_LICENSE_KEY
+
+  whoami-individual:
+    image: traefik/whoami:latest
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - proxy
+    environment:
+      TZ: "${TZ:-America/New_York}"
+    deploy:
+      placement:
+        constraints:
+          - node.hostname == ash-2
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.whoami-individual-rtr.rule=Host(`whoami-individual.${DOMAINNAME}`)"
+        - "traefik.http.routers.whoami-individual-rtr.entrypoints=websecure"
+        - "traefik.http.routers.whoami-individual-rtr.tls.certresolver=cloudflare"
+        - "traefik.http.routers.whoami-individual-rtr.service=whoami-individual-svc"
+        - "traefik.http.routers.whoami-individual-rtr.middlewares=middlewares-authentik@file"
+        - "traefik.http.services.whoami-individual-svc.loadbalancer.server.port=80"
+
+  whoami-catchall:
+    image: traefik/whoami:latest
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - proxy
+    environment:
+      TZ: "${TZ:-America/New_York}"
+    deploy:
+      placement:
+        constraints:
+          - node.hostname == ash-2
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.whoami-catchall-rtr.rule=Host(`whoami-catchall.${DOMAINNAME}`)"
+        - "traefik.http.routers.whoami-catchall-rtr.entrypoints=websecure"
+        - "traefik.http.routers.whoami-catchall-rtr.tls.certresolver=cloudflare"
+        - "traefik.http.routers.whoami-catchall-rtr.service=whoami-catchall-svc"
+        - "traefik.http.routers.whoami-catchall-rtr.middlewares=middlewares-authentik@file"
+        - "traefik.http.services.whoami-catchall-svc.loadbalancer.server.port=80"
