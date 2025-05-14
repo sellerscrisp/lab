@@ -1,13 +1,12 @@
-# old
 version: '3.8'
 
 networks:
-  proxy: # Your existing external Traefik network
+  proxy:
     external: true
-  authentik-backend: # Internal network for Authentik components
+  authentik-backend:
     driver: overlay
     attachable: true
-  # socket_proxy: # You mentioned removing this from server, worker might still use it or direct docker.sock
+  # socket_proxy:
   #   driver: overlay
   #   attachable: true
 
@@ -55,7 +54,7 @@ services:
     image: docker.io/library/postgres:16-alpine
     restart: unless-stopped
     shm_size: 128mb
-    user: root:root # Run as root for permissions
+    user: root:root # Run as root for permissions #! bad
     configs:
       - source: init-auth.sql
         target: /docker-entrypoint-initdb.d/01-init-auth.sql
@@ -153,7 +152,7 @@ services:
       - authentik_custom_templates_data:/templates
       - authentik_geoip_data:/geoip
       - /mnt/shared/branding/logos:/web/dist/assets/images:ro
-      - /mnt/shared/branding/fonts:/web/dist/assets/fonts:ro
+      # - /mnt/shared/branding/fonts:/web/dist/assets/fonts:ro
     deploy:
       placement:
         constraints:
