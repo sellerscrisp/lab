@@ -10,11 +10,19 @@ As a devops noob, Portainer has been great for visualizing my swarm cluster and 
 
 ### [Traefik](https://traefik.io/) (WIP)
 
-Traefik is used as the reverse proxy for the cluster. It is configured to use Cloudflare DNS challenge. Additionally, it serves as a proxy for authentik and helps forward headers to other services.
+Traefik is used as the reverse proxy for the cluster. It is configured to use Cloudflare DNS challenge. Additionally, it serves as a proxy for authentik and helps forward headers to other services. [This](https://github.com/ItalyPaleAle/traefik-forward-auth) looks promising.
 
 ### [Authentik](https://docs.goauthentik.io/docs) (WIP)
 
 Authentik is used for authentication and authorization. It is configured to use the Cloudflare DNS API to automatically update the DNS records for the cluster.
+
+<details>
+<summary>Authentik Architecture</summary>
+
+![Authentik Architecture](./.docs/static/authentik-architecture.png)
+
+</details>
+
 
 ### [Grafana](https://grafana.com/docs/grafana/latest/datasources/prometheus/)
 
