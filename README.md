@@ -2,7 +2,7 @@
 
 ## Overview
 
-This stack is a collection of services that are used to setup my "production ready" swarm cluster that powers my AI services:
+This repository is a collection of services that are used to setup and deploy a "production ready" swarm cluster that powers my AI services.
 
 ### Portainer
 
