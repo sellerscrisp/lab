@@ -1,4 +1,4 @@
-version: '3.8'
+version: "3.8"
 
 networks:
   proxy:
@@ -6,9 +6,6 @@ networks:
   authentik-backend:
     driver: overlay
     attachable: true
-  # socket_proxy:
-  #   driver: overlay
-  #   attachable: true
 
 volumes:
   authentik_db_data:
@@ -58,12 +55,17 @@ services:
       - source: init-auth.sql
         target: /docker-entrypoint-initdb.d/01-init-auth.sql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -d $$(cat /run/secrets/POSTGRES_DB || echo authentik) -U $$(cat /run/secrets/POSTGRES_USER || echo authentik)"]
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -d $$(cat /run/secrets/POSTGRES_DB || echo authentik) -U $$(cat /run/secrets/POSTGRES_USER || echo authentik)",
+        ]
       start_period: 20s
       interval: 30s
       retries: 5
       timeout: 5s
     networks:
+      - proxy
       - authentik-backend
     volumes:
       - authentik_db_data:/var/lib/postgresql/data
@@ -104,6 +106,7 @@ services:
       retries: 5
       timeout: 3s
     networks:
+      - proxy
       - authentik-backend
     volumes:
       - authentik_redis_data:/data
@@ -147,13 +150,14 @@ services:
       AUTHENTIK_COOKIE_DOMAIN: "${DOMAINNAME}"
       AUTHENTIK_HOST_BROWSER: "https://auth.${DOMAINNAME}"
       AUTHENTIK_HOST: "https://auth.${DOMAINNAME}"
-      # AUTHENTIK_LISTEN__TRUSTED_PROXY_CIDRS: "${AUTHENTIK_LISTEN__TRUSTED_PROXY_CIDRS}" # Optional
+      AUTHENTIK_LISTEN__TRUSTED_PROXY_CIDRS: "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,10.0.2.0/24"
+
     volumes:
       - authentik_media_data:/media
       - authentik_custom_templates_data:/templates
       - authentik_geoip_data:/geoip
       - /mnt/shared/branding/logos:/web/dist/assets/images:ro
-      # - /mnt/shared/branding/fonts:/web/dist/assets/fonts:ro
+      - /mnt/shared/branding/fonts:/web/dist/assets/fonts/custom:ro
     deploy:
       placement:
         constraints:
@@ -162,13 +166,14 @@ services:
         condition: unless-stopped
       labels:
         - "traefik.enable=true"
+        - "traefik.swarm.network=proxy"
         - "traefik.http.routers.authentik-ui.rule=Host(`auth.${DOMAINNAME}`)"
         - "traefik.http.routers.authentik-ui.entrypoints=websecure"
         - "traefik.http.routers.authentik-ui.tls.certresolver=cloudflare"
         - "traefik.http.routers.authentik-ui.service=authentik-svc"
-        - "traefik.http.routers.authentik-outpost.rule=Host(`auth.${DOMAINNAME}`) && PathPrefix(`/outpost.goauthentik.io/`)"
-        - "traefik.http.routers.authentik-outpost.priority=100"
-        - "traefik.http.routers.authentik-outpost.entrypoints=websecure"
+        - "traefik.http.routers.authentik-output-rtr.rule=HostRegexp(`[a-z0-9-]+\\.${DOMAINNAME}`) && PathPrefix(`/outpost.goauthentik.io/`)"
+        - "traefik.http.routers.authentik-output-rtr.priority=100"
+        - "traefik.http.routers.authentik-output-rtr.entrypoints=websecure"
         - "traefik.http.routers.authentik-outpost.tls.certresolver=cloudflare"
         - "traefik.http.routers.authentik-outpost.service=authentik-svc"
         - "traefik.http.services.authentik-svc.loadbalancer.server.port=9000"
@@ -181,6 +186,7 @@ services:
       - postgresql
       - redis
     networks:
+      - proxy
       - authentik-backend
       - proxy
     secrets:
@@ -237,6 +243,7 @@ services:
     volumes:
       - authentik_geoip_data:/usr/share/GeoIP
     networks:
+      - proxy
       - authentik-backend
     # secrets:
     #   - source: geoip_account_id # Optional
@@ -256,6 +263,7 @@ services:
       - no-new-privileges:true
     networks:
       - proxy
+      - authentik-backend
     environment:
       TZ: "${TZ:-America/New_York}"
     deploy:
@@ -280,6 +288,7 @@ services:
       - no-new-privileges:true
     networks:
       - proxy
+      - authentik-backend
     environment:
       TZ: "${TZ:-America/New_York}"
     deploy:

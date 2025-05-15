@@ -1,0 +1,370 @@
+version: "3.8"
+
+networks:
+  proxy:
+    external: true
+
+volumes:
+  litellm_postgres_data:
+    driver: local
+    driver_opts:
+      type: none
+      device: /mnt/shared/docker/ai/litellm_db
+      o: bind
+  pipelines_data:
+    driver: local
+    driver_opts:
+      type: none
+      device: /mnt/shared/docker/ai/pipelines
+      o: bind
+  openwebui_data:
+    driver: local
+    driver_opts:
+      type: none
+      device: /mnt/shared/docker/ai/openwebui
+      o: bind
+  minio_data:
+    driver: local
+    driver_opts:
+      type: none
+      device: /mnt/shared/docker/ai/minio
+      o: bind
+  redis_data:
+    driver: local
+    driver_opts:
+      type: none
+      device: /mnt/shared/docker/ai/redis
+      o: bind
+
+configs:
+  # litellm-config:
+  #   external: true
+  litellm-config-05012025-1:
+    external: true
+  litellm-env:
+    external: true
+  openwebui-env:
+    external: true
+
+services:
+  # --- litellm ---
+  litellm:
+    image: litellm/litellm:latest
+    networks:
+      - proxy
+    environment:
+      - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - AZURE_AD_TOKEN=${AZURE_AD_TOKEN:-}
+      - AZURE_AD_TOKEN_PROVIDER=${AZURE_AD_TOKEN_PROVIDER:-}
+      - AZURE_OPENAI_API_KEY=${AZURE_OPENAI_API_KEY:-}
+      - AZURE_API_BASE=${AZURE_API_BASE:-}
+      - AZURE_API_VERSION=${AZURE_API_VERSION:-}
+      - GOOGLE_APPLICATION_CREDENTIALS=${GOOGLE_APPLICATION_CREDENTIALS:-}
+      - VERTEX_PROJECT=${VERTEX_PROJECT:-}
+      - VERTEX_LOCATION=${VERTEX_LOCATION:-}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
+      - AWS_REGION_NAME=${AWS_REGION_NAME:-}
+      - GROQ_API_KEY=${GROQ_API_KEY:-}
+      - COHERE_API_KEY=${COHERE_API_KEY:-}
+      - ANYSCALE_API_KEY=${ANYSCALE_API_KEY:-}
+      # - LITELLM_LOG_LEVEL=${LITELLM_LOG_LEVEL:-INFO}
+      - LITELLM_LOG_LEVEL="INFO"
+      - LITELLM_DATABASE_URL=${LITELLM_DATABASE_URL:-}
+      - DATABASE_URL=${LITELLM_DATABASE_URL:-}
+    configs:
+      - source: litellm-config-05012025-1
+        target: /app/config.yaml
+      - source: litellm-env
+        target: /app/.env
+    deploy:
+      mode: replicated
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      update_config:
+        parallelism: 1
+        order: start-first
+        failure_action: rollback
+        monitor: 10s
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.my-litellm.entrypoints=websecure"
+        - "traefik.http.routers.my-litellm.rule=Host(`llm.caulk.lol`)"
+        - "traefik.http.routers.my-litellm.service=my-litellm"
+        - "traefik.http.services.my-litellm.loadbalancer.server.port=4000"
+        - shepherd.enable=true
+    command:
+      - "--config"
+      - "/app/config.yaml"
+      - "--num_workers"
+      - "2"
+      - "--port"
+      - "4000"
+      - "--debug"
+    # healthcheck:
+    #   test: [ "CMD", "curl", "-f", "http://localhost:4000/health/liveliness || exit 1" ]
+    #   interval: 30s
+    #   timeout: 10s
+    #   retries: 3
+    #   start_period: 40s
+  
+  litellm_db:
+    image: postgres:16
+    deploy:
+      mode: replicated
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      update_config:
+        parallelism: 1
+        order: start-first
+        failure_action: rollback
+        monitor: 10s
+    environment:
+      POSTGRES_DB: litellm
+      POSTGRES_USER: llmproxy
+      POSTGRES_PASSWORD: ${LITELLM_DB_PASSWORD:-}
+    networks:
+      - proxy
+    volumes:
+      - litellm_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -d litellm -U llmproxy"]
+      interval: 1s
+      timeout: 5s
+      retries: 10
+
+  # --- pipelines ---
+  pipelines:
+    image: ghcr.io/openwebui/pipelines:latest
+    container_name: pipelines
+    hostname: pipelines
+    networks:
+      - proxy
+    environment:
+      - PIPELINES_DIR=/app/pipelines
+    volumes:
+      - pipelines_data:/app/pipelines
+    restart: always
+    deploy:
+      mode: replicated
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9099"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # --- minio ---
+  minio:
+    image: "minio/minio:latest"
+    deploy:
+      mode: replicated
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      update_config:
+        parallelism: 1
+        order: start-first
+        failure_action: rollback
+        monitor: 10s
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.myminio.entrypoints=websecure"
+        - "traefik.http.routers.myminio.rule=Host(`s3.caulk.lol`)"
+        - "traefik.http.routers.myminio.service=myminio"
+        - "traefik.http.services.myminio.loadbalancer.server.port=9000"
+        - "traefik.http.routers.myminioadmin.entrypoints=websecure"
+        - "traefik.http.routers.myminioadmin.rule=Host(`s3-console.caulk.lol`)"
+        - "traefik.http.routers.myminioadmin.service=myminioadmin"
+        - "traefik.http.services.myminioadmin.loadbalancer.server.port=9001"
+    environment:
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}
+    command: server /data --console-address ":9001"
+    networks:
+      - proxy
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 10s
+      start_period: 30s
+      retries: 5
+
+  # --- create buckets ---
+  createbuckets:
+    image: minio/mc
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      /usr/bin/mc alias set myminio http://minio:9000 ${MINIO_ROOT_USER} ${MINIO_ROOT_PASSWORD};
+      /usr/bin/mc mb myminio/openwebui;
+      /usr/bin/mc policy set public myminio/openwebui;
+      exit 0;
+      "
+    networks:
+      - proxy
+    deploy:
+      mode: replicated
+      replicas: 1
+      restart_policy:
+        condition: none
+
+  # --- redis ---
+  redis:
+    image: redis:alpine
+    command: redis-server --requirepass ${REDIS_PASSWORD:-some_random_redis_password}
+    deploy:
+      mode: replicated
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      update_config:
+        parallelism: 1
+        order: start-first
+        failure_action: rollback
+        monitor: 10s
+    networks:
+      - proxy
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-h", "localhost", "-p", "6379", "-a", "${REDIS_PASSWORD:-some_random_redis_password}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+  
+  ttsedge:
+    image: travisvn/openai-edge-tts:latest
+    networks:
+      - proxy
+    environment:
+      - DEFAULT_VOICE=en-US-EmmaMultilingualNeural
+      - DEFAULT_RESPONSE_FORMAT=mp3
+      - DEFAULT_SPEED=1.0
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    deploy:
+      mode: replicated
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      update_config:
+        parallelism: 1
+        order: start-first
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.myttsedge.entrypoints=websecure"
+        - "traefik.http.routers.myttsedge.rule=Host(`tts.caulk.lol`)"
+        - "traefik.http.routers.myttsedge.service=myttsedge"
+        - "traefik.http.services.myttsedge.loadbalancer.server.port=5050"
+    healthcheck:
+      interval: 30s
+      retries: 5
+      start_period: 5s
+      test: "curl --fail https://tts.caulk.lol/voices -H 'Authorization: Bearer ${OPENAI_API_KEY}' || exit 1"
+      timeout: 5s
+
+# --- openwebui ---
+  openwebui:
+    image: ghcr.io/crisp-sh/openwebui:latest
+    environment:
+      # --- Custom ---
+      - CUSTOM_NAME=${CUSTOM_NAME:-OnlyPrompt}
+      - WEBUI_NAME=${WEBUI_NAME:-OnlyPrompt}      
+      - ENABLE_CHANNELS=${ENABLE_CHANNELS:-true}
+      # --- Database & Search ---
+      - ENABLE_RAG_WEB_SEARCH=${ENABLE_RAG_WEB_SEARCH:-true}
+      - RAG_WEB_SEARCH_ENGINE=${RAG_WEB_SEARCH_ENGINE:-tavily}
+      - TAVILY_API_KEY=${TAVILY_API_KEY-some_random_tavily_api_key}
+      - RAG_WEB_SEARCH_RESULT_COUNT=10
+      - RAG_WEB_SEARCH_CONCURRENT_REQUESTS=30
+      # --- Stripe ---
+      - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY}
+      - STRIPE_PUBLISHABLE_KEY=${STRIPE_PUBLISHABLE_KEY}
+      - STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET}
+      - STRIPE_PRICE_ID=${STRIPE_PRICE_ID}
+      - STRIPE_PRODUCT_ID=${STRIPE_PRODUCT_ID}
+      - STRIPE_WEBHOOK_URL=${STRIPE_WEBHOOK_URL}
+      # --- OpenAI ---  
+      - OPENAI_API_URL=${OPENAI_API_URL:-https://llm.onlyprompt.me}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      # --- Storage ---
+      - LOCAL_FILES_ONLY=false
+      - STORAGE_PROVIDER=${STORAGE_PROVIDER:-s3}
+      - S3_ACCESS_KEY_ID=${MINIO_ROOT_USER}
+      - S3_SECRET_ACCESS_KEY=${MINIO_ROOT_PASSWORD}
+      - S3_BUCKET_NAME=${S3_BUCKET_NAME:-openwebui}
+      - S3_ENDPOINT_URL=http://minio:9000
+      - S3_REGION=${S3_REGION:-us-east-1}
+      # --- Redis ---
+      - ENABLE_WEBCOOKIE_AUTH=true
+      - ENABLE_WEBSOCKET_SUPPORT=true
+      - WEBSOCKET_MANAGER=redis
+      - REDIS_URL=redis://default:${REDIS_PASSWORD:-some_random_redis_password}@redis:6379
+      # --- Admin User ---
+      - ADMIN_EMAIL=${ADMIN_EMAIL:-s@crisp.sh}
+      # --- OLLAMA ---
+      - ENABLE_OLLAMA_API=${ENABLE_OLLAMA_API:-false}
+      # --- Model Settings ---
+      - ENABLE_EVALUATION_ARENA_MODELS=${ENABLE_EVALUATION_ARENA_MODELS:-false}
+      # --- OAuth ---
+      - ENABLE_LOGIN_FORM=${ENABLE_LOGIN_FORM:-false} # set false when oauth is enabled
+      - ENABLE_SIGNUP=${ENABLE_SIGNUP:-true}
+      - DEFAULT_USER_ROLE=${DEFAULT_USER_ROLE:-pending}
+      - ENABLE_OAUTH_SIGNUP=${ENABLE_OAUTH_SIGNUP:-true}
+      - ENABLE_OAUTH_ROLE_MANAGEMENT=${ENABLE_OAUTH_ROLE_MANAGEMENT:-true}
+      - ENABLE_OAUTH_GROUP_MANAGEMENT=${ENABLE_OAUTH_GROUP_MANAGEMENT:-true}
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
+      - GOOGLE_REDIRECT_URI=${GOOGLE_REDIRECT_URI:-https://onlyprompt.me/oauth/google/callback}
+      - MICROSOFT_CLIENT_ID=${MICROSOFT_CLIENT_ID}
+      - MICROSOFT_CLIENT_SECRET=${MICROSOFT_CLIENT_SECRET}
+      - MICROSOFT_REDIRECT_URI=${MICROSOFT_REDIRECT_URI:-https://onlyprompt.me/oauth/microsoft/callback}
+      # --- Pipeline ---
+      - PIPELINES_BASE_URL=http://pipelines:9099
+    configs:
+      - source: openwebui-env
+        target: /app/.env
+    networks:
+      - proxy
+    volumes:
+      - openwebui_data:/app/backend/data
+    depends_on:
+      - litellm
+      - litellm_db
+      # - pipelines
+      - redis
+      - minio
+    deploy:
+      mode: replicated
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      update_config:
+        parallelism: 1
+        order: start-first
+        failure_action: rollback
+        monitor: 10s
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.openwebui.rule=Host(`onlyprompt.me`)"
+        - "traefik.http.routers.openwebui.entrypoints=websecure"
+        - "traefik.http.routers.openwebui.tls=true" # Explicitly enable TLS
+        - "traefik.http.routers.openwebui.tls.certresolver=cloudflare"
+        - "traefik.http.services.openwebui.loadbalancer.server.port=8080"
+        - shepherd.enable=true
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3

@@ -1,0 +1,214 @@
+:root {
+  --pf-global--BorderRadius--sm: 0px !important;
+  --pf-global--BorderRadius--lg: 0px !important;
+  --bg-gradient: linear-gradient(
+    to right bottom,
+    #1a1206,
+    #23130d,
+    #241112,
+    #221218,
+    #2a1c28,
+    #221c28,
+    #1f212c,
+    #191e25,
+    #182126,
+    #141b1d,
+    #141c1d,
+    #171e1d
+  );
+  --color-1: 35 81% 56%;
+  --color-2: 269 18% 38%;
+  --color-3: 214 21% 33%;
+  --color-4: 185 17% 44%;
+  --color-5: 169 13% 49%;
+}
+
+@keyframes rainbow {
+  0% {
+    background-position: 0%;
+  }
+  100% {
+    background-position: 200%;
+  }
+}
+
+.pf-c-form__group a {
+  color: #006cc5;
+}
+
+.pf-c-form__group a:hover {
+  color: #00569d;
+}
+
+.pf-c-button.pf-m-primary.pf-m-block {
+  /* Base Button Styles from Tailwind classes */
+  position: relative;
+  display: inline-flex;
+  height: 2.75rem; /* h-11 */
+  cursor: pointer;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--pf-global--BorderRadius--lg);
+  border: calc(0.08 * 1rem) solid transparent;
+  padding-left: 2rem;
+  padding-right: 2rem;
+  padding-top: 0.25rem;
+  padding-bottom: 0.25rem;
+  font-weight: 500;
+  color: #000;
+  transition-property: color, background-color, border-color,
+    text-decoration-color, fill, stroke;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  transition-duration: 150ms;
+  background-size: 200%;
+  background-origin: border-box;
+  background-clip: padding-box, border-box, border-box;
+  animation: rainbow var(--speed, 2s) infinite linear;
+
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 1px var(--pf-global--primary-color--100);
+
+  /* Disabled styles */
+  &.pf-m-disabled {
+    pointer-events: none;
+    opacity: 0.5;
+  }
+
+  &::before {
+    content: "";
+    position: absolute;
+    bottom: -20%;
+    left: 50%;
+    z-index: 0;
+    height: 20%;
+    width: 60%;
+    transform: translateX(-50%);
+    animation: rainbow var(--speed, 2s) infinite linear;
+    background: linear-gradient(
+      90deg,
+      hsl(var(--color-1)),
+      hsl(var(--color-5)),
+      hsl(var(--color-3)),
+      hsl(var(--color-4)),
+      hsl(var(--color-2))
+    );
+    background-size: 200%;
+    filter: blur(calc(0.8 * 1rem));
+  }
+
+  background-image: linear-gradient(#d7d7e8, #d7d7e8),
+    linear-gradient(#d7d7e8 50%, rgba(215, 215, 232, 0.6) 80%, rgba(215, 215, 232, 0)),
+    linear-gradient(
+      90deg,
+      hsl(var(--color-1)),
+      hsl(var(--color-5)),
+      hsl(var(--color-3)),
+      hsl(var(--color-4)),
+      hsl(var(--color-2))
+    );
+}
+
+/* Ensure text is visible above the background */
+.pf-c-button.pf-m-primary.pf-m-block > * {
+  position: relative; /* Ensure text is above the pseudo-element */
+  z-index: 1;
+}
+
+.pf-c-background-image {
+  /* 1) clear any forced URL */
+  background-image: none !important;
+  /* if Authentik uses the var, make that empty too */
+  --ak-flow-background: none !important;
+
+  /* 2) inject your gradient + animation */
+  background-image: var(--bg-gradient) !important;
+  background-size: 300% 300% !important;
+  animation: bg-flow 20s ease infinite !important;
+
+  /* preserve your positioning */
+  min-height: 100vh;
+  width: 100%;
+  position: fixed !important;
+  top: 0;
+  left: 0;
+  z-index: -1 !important;
+}
+
+@keyframes bg-flow {
+  0%   { background-position:   0%  50%; }
+  50%  { background-position: 100%  50%; }
+  100% { background-position:   0%  50%; }
+}
+
+.pf-c-list {
+  color: transparent;
+  font-size: 1px;
+  display: none;
+}
+
+.pf-c-page__drawer,
+.pf-c-drawer,
+.pf-c-drawer__main,
+.pf-c-drawer__content,
+.pf-c-drawer__body {
+  background: transparent !important;
+}
+
+.pf-c-page__drawer {
+  position: relative;
+  z-index: 1;
+  min-height: 100vh;
+  box-sizing: border-box;
+}
+
+.pf-c-login {
+  max-height: 100vh;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+.ak-login-container {
+  border-radius: 0px !important;
+  background-color: rgba(255, 255, 255, 0.1) !important;
+  backdrop-filter: blur(12px) !important;
+  -webkit-backdrop-filter: blur(12px) !important;
+  border: 1px solid rgba(255, 255, 255, 0.18) !important;
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.15) !important;
+  display: block;
+  margin: 1rem auto !important;
+  width: 90% !important;
+  max-width: 450px !important;
+  padding: 1.5rem !important;
+  overflow: hidden;
+  box-sizing: border-box;
+  height: auto !important;
+  min-height: 0 !important;
+}
+
+input {
+  border-radius: 0px !important;
+  background-color: rgba(255, 255, 255, 0.15) !important;
+  backdrop-filter: blur(12px) !important;
+  -webkit-backdrop-filter: blur(12px) !important;
+  border: 1px solid rgba(255, 255, 255, 0.18) !important;
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.15) !important;
+  color: #000 !important;
+}
+
+input::placeholder {
+  color: #292929 !important;
+}
+
+.pf-c-login__main {
+  background: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  border: none !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  border-radius: 0 !important;
+  opacity: 1 !important;
+  height: auto !important;
+  margin: 0 !important;
+}
