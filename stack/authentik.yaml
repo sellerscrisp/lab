@@ -52,8 +52,7 @@ configs:
 services:
   postgresql:
     image: docker.io/library/postgres:16-alpine
-    restart: unless-stopped
-    shm_size: 128mb
+    command: ["postgres", "-c", "jit=off"]
     user: root:root # Run as root for permissions #! bad
     configs:
       - source: init-auth.sql
@@ -86,11 +85,12 @@ services:
       placement:
         constraints:
           - node.hostname == ash-2
+      restart_policy:
+        condition: unless-stopped
 
   redis:
     image: docker.io/library/redis:alpine
     command: --save 60 1 --loglevel warning
-    restart: unless-stopped
     entrypoint:
       - sh
       - -c
@@ -111,10 +111,11 @@ services:
       placement:
         constraints:
           - node.hostname == ash-2
+      restart_policy:
+        condition: unless-stopped
 
   server:
     image: ${AUTHENTIK_IMAGE:-ghcr.io/goauthentik/server}:${AUTHENTIK_TAG:-2025.4.0}
-    restart: unless-stopped
     command: server
     user: "${PUID:-1000}:${PGID:-1000}"
     depends_on:
@@ -157,6 +158,8 @@ services:
       placement:
         constraints:
           - node.hostname == ash-2
+      restart_policy:
+        condition: unless-stopped
       labels:
         - "traefik.enable=true"
         - "traefik.http.routers.authentik-ui.rule=Host(`auth.${DOMAINNAME}`)"
@@ -172,7 +175,6 @@ services:
 
   worker:
     image: ${AUTHENTIK_IMAGE:-ghcr.io/goauthentik/server}:${AUTHENTIK_TAG:-2025.4.0}
-    restart: unless-stopped
     user: root #! bad
     command: worker
     depends_on:
@@ -180,6 +182,7 @@ services:
       - redis
     networks:
       - authentik-backend
+      - proxy
     secrets:
       - source: authentik_pg_pass
         target: AUTHENTIK_POSTGRESQL__PASSWORD
@@ -224,6 +227,8 @@ services:
       placement:
         constraints:
           - node.hostname == ash-2
+      restart_policy:
+        condition: unless-stopped
 
   geoipupdate:
     image: ghcr.io/maxmind/geoipupdate:latest
@@ -257,6 +262,8 @@ services:
       placement:
         constraints:
           - node.hostname == ash-2
+      restart_policy:
+        condition: unless-stopped
       labels:
         - "traefik.enable=true"
         - "traefik.http.routers.whoami-individual-rtr.rule=Host(`whoami-individual.${DOMAINNAME}`)"
@@ -279,6 +286,8 @@ services:
       placement:
         constraints:
           - node.hostname == ash-2
+      restart_policy:
+        condition: unless-stopped
       labels:
         - "traefik.enable=true"
         - "traefik.http.routers.whoami-catchall-rtr.rule=Host(`whoami-catchall.${DOMAINNAME}`)"
