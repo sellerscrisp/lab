@@ -11,16 +11,6 @@ configs:
   ref_authentik_middlewares_config:
     external: true
     name: traefik_middlewares_authentik.yaml
-  ref_authentik_forwardauth_config:
-    external: true
-    name: traefik_forwardAuth_authentik.yaml
-  # ref_custom_tls_config:
-  #   external: true
-  #   name: traefik_custom_tls.yaml
-  # ref_app_rules_config:
-  #   external: true
-  #   name: traefik_app_rules.yaml
-
   shepherd-docker-config:
     external: true
 
@@ -32,8 +22,8 @@ services:
       - "--providers.swarm.network=proxy"
       - "--providers.swarm.exposedByDefault=false"
       - "--serversTransport.insecureSkipVerify=true" #! bad
-      # - "--providers.file.directory=/rules"
       - "--providers.file.watch=true"
+      - "--providers.file.directory=/rules"
       - "--entrypoints.web.address=:80"
       - "--entrypoints.websecure.address=:443"
       - "--certificatesresolvers.cloudflare.acme.dnschallenge=true"
@@ -51,8 +41,6 @@ services:
       - "--log.level=INFO"
     environment:
       - CF_DNS_API_TOKEN=${CF_DNS_API_TOKEN}
-      - TRAEFIK_PROVIDERS_FILE_DIRECTORY=/rules
-      - TRAEFIK_PROVIDERS_FILE_WATCH=true
     ports:
       - target: 80
         published: 80
@@ -66,18 +54,9 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - traefik_letsencrypt:/letsencrypt
     configs:
-      - source: ref_authentik_forwardauth_config
-        target: /rules/authentik-middleware-file.yaml
-        mode: 0444
       - source: ref_authentik_middlewares_config
         target: /rules/authentik-middlewares-file.yaml
         mode: 0444
-      # - source: ref_custom_tls_config
-      #   target: /rules/custom-tls-options-file.yaml
-      #   mode: 0444
-      # - source: ref_app_rules_config
-      #   target: /rules/app-specific-rules-file.yaml
-      #   mode: 0444
     networks:
       - proxy
     deploy:
@@ -95,7 +74,7 @@ services:
         - "traefik.http.routers.traefik-dashboard.tls.certresolver=cloudflare"
         - "traefik.http.routers.traefik-dashboard.service=api@internal"
         - "traefik.http.routers.traefik-dashboard.middlewares=myauth@docker" #? basic auth for dashboard
-  whoami: # Test service
+  whoami:
     image: "traefik/whoami"
     networks:
       - proxy
@@ -108,8 +87,7 @@ services:
         - "traefik.http.routers.whoami-caulklol.tls=true"
         - "traefik.http.routers.whoami-caulklol.tls.certresolver=cloudflare"
         - "traefik.http.routers.whoami-caulklol.service=whoami-caulklol-svc"
-        # Ensure this middleware name EXACTLY matches the one defined INSIDE your Docker Config content
-        - "traefik.http.routers.whoami-caulklol.middlewares=forwardAuth-authentik@file"
+        - "traefik.http.routers.whoami-caulklol.middlewares=middlewares-authentik@file"
         - "traefik.http.services.whoami-caulklol-svc.loadbalancer.server.port=80"
 
   # not functional yet

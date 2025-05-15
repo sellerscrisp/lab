@@ -1,10 +1,9 @@
 http:
   middlewares:
     # This is the internal name of the middleware.
-    # We will reference this as 'middlewares-authentik@file' in router labels.
+    # Referenced as 'middlewares-authentik@file' in router labels.
     middlewares-authentik:
       forwardAuth:
-        # This address points to the 'server' service within the authentik stack.
         address: "http://server:9000/outpost.goauthentik.io/auth/traefik"
         trustForwardHeader: true
         authResponseHeaders:
